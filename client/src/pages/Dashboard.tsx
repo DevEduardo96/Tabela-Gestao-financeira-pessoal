@@ -1,327 +1,372 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   TrendingUp,
   TrendingDown,
   Wallet,
-  CreditCard,
   PiggyBank,
   ArrowUpRight,
   ArrowDownRight,
   Plus,
-  ChevronDown,
   LayoutDashboard,
   Receipt,
   Target,
-  Settings,
-  Bell,
   Search,
-  Calendar,
+  Trash2,
 } from "lucide-react";
 import {
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   PieChart,
   Pie,
   Cell,
   XAxis,
-  YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  LineChart,
-  Line,
 } from "recharts";
 
-const monthlyData = [
-  { name: "Jan", receitas: 8500, despesas: 6200 },
-  { name: "Fev", receitas: 9200, despesas: 5800 },
-  { name: "Mar", receitas: 8800, despesas: 7100 },
-  { name: "Abr", receitas: 9500, despesas: 6400 },
-  { name: "Mai", receitas: 10200, despesas: 7800 },
-  { name: "Jun", receitas: 9800, despesas: 6900 },
-  { name: "Jul", receitas: 11000, despesas: 7200 },
-  { name: "Ago", receitas: 10500, despesas: 8100 },
-  { name: "Set", receitas: 9900, despesas: 6600 },
-  { name: "Out", receitas: 10800, despesas: 7400 },
-  { name: "Nov", receitas: 11500, despesas: 8200 },
-  { name: "Dez", receitas: 12000, despesas: 8800 },
-];
+// --- Interfaces ---
+interface Transaction {
+  id: number;
+  desc: string;
+  category: string;
+  value: number;
+  date: string;
+  goalId?: number; // Vínculo opcional com meta
+}
 
-const categoryData = [
-  { name: "Moradia", value: 2500, color: "#FF6600" },
-  { name: "Alimentação", value: 1800, color: "#FF8533" },
-  { name: "Transporte", value: 800, color: "#FFB380" },
-  { name: "Lazer", value: 600, color: "#666666" },
-  { name: "Saúde", value: 400, color: "#444444" },
-  { name: "Outros", value: 300, color: "#333333" },
-];
-
-const weeklyExpenses = [
-  { day: "Seg", valor: 120 },
-  { day: "Ter", valor: 280 },
-  { day: "Qua", valor: 150 },
-  { day: "Qui", valor: 420 },
-  { day: "Sex", valor: 380 },
-  { day: "Sáb", valor: 520 },
-  { day: "Dom", valor: 180 },
-];
-
-const recentTransactions = [
-  { id: 1, desc: "Supermercado Extra", category: "Alimentação", value: -245.80, date: "Hoje" },
-  { id: 2, desc: "Salário", category: "Receita", value: 8500.00, date: "Ontem" },
-  { id: 3, desc: "Uber", category: "Transporte", value: -32.50, date: "Ontem" },
-  { id: 4, desc: "Netflix", category: "Lazer", value: -55.90, date: "10 Jan" },
-  { id: 5, desc: "Farmácia", category: "Saúde", value: -89.90, date: "09 Jan" },
-];
-
-const savingsGoals = [
-  { name: "Viagem", current: 4500, target: 10000, color: "#FF6600" },
-  { name: "Reserva", current: 15000, target: 30000, color: "#FF8533" },
-  { name: "Carro Novo", current: 8000, target: 50000, color: "#FFB380" },
-];
+interface Goal {
+  id: number;
+  name: string;
+  current: number;
+  target: number;
+  color: string;
+}
 
 export default function Dashboard() {
-  const [selectedPeriod, setSelectedPeriod] = useState("2024");
+  const [isTxModalOpen, setIsTxModalOpen] = useState(false);
+  const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [transactions, setTransactions] = useState<Transaction[]>([
+    {
+      id: 1,
+      desc: "Salário Mensal",
+      category: "Receita",
+      value: 8500.0,
+      date: "2026-01-12",
+    },
+    {
+      id: 2,
+      desc: "Supermercado",
+      category: "Alimentação",
+      value: -450.0,
+      date: "2026-01-10",
+    },
+    {
+      id: 3,
+      desc: "Reserva de Emergência",
+      category: "Metas",
+      value: 500.0,
+      date: "2026-01-11",
+      goalId: 2,
+    },
+  ]);
+
+  const [goals, setGoals] = useState<Goal[]>([
+    { id: 1, name: "Viagem", current: 4500, target: 10000, color: "#FF6600" },
+    { id: 2, name: "Reserva", current: 15500, target: 30000, color: "#FF8533" },
+    { id: 3, name: "Carro", current: 8000, target: 50000, color: "#FFB380" },
+  ]);
+
+  // Cálculos dinâmicos
+  const stats = useMemo(() => {
+    const income = transactions
+      .filter((t) => t.value > 0)
+      .reduce((acc, t) => acc + t.value, 0);
+    const expenses = transactions
+      .filter((t) => t.value < 0)
+      .reduce((acc, t) => acc + Math.abs(t.value), 0);
+    return { balance: income - expenses, income, expenses };
+  }, [transactions]);
+
+  const monthlyFlowData = useMemo(() => {
+    const months = [
+      "Jan",
+      "Fev",
+      "Mar",
+      "Abr",
+      "Mai",
+      "Jun",
+      "Jul",
+      "Ago",
+      "Set",
+      "Out",
+      "Nov",
+      "Dez",
+    ];
+    const data = months.map((name) => ({ name, receitas: 0, despesas: 0 }));
+    transactions.forEach((tx) => {
+      const monthIdx = new Date(tx.date).getUTCMonth();
+      if (tx.value > 0) data[monthIdx].receitas += tx.value;
+      else data[monthIdx].despesas += Math.abs(tx.value);
+    });
+    return data;
+  }, [transactions]);
+
+  const categoryData = useMemo(() => {
+    const cats: Record<string, number> = {};
+    transactions
+      .filter((t) => t.value < 0)
+      .forEach((t) => {
+        cats[t.category] = (cats[t.category] || 0) + Math.abs(t.value);
+      });
+    const colors = ["#FF6600", "#FF8533", "#FFB380", "#444", "#666"];
+    return Object.entries(cats).map(([name, value], i) => ({
+      name,
+      value,
+      color: colors[i % colors.length],
+    }));
+  }, [transactions]);
+
+  const filteredTransactions = transactions.filter((t) =>
+    t.desc.toLowerCase().includes(searchTerm.toLowerCase()),
+  );
+
+  // Lógica principal solicitada: Adicionar Transação e atualizar Meta
+  const addTransaction = (
+    desc: string,
+    val: number,
+    cat: string,
+    date: string,
+    goalId?: number,
+  ) => {
+    const newTx: Transaction = {
+      id: Date.now(),
+      desc,
+      value: val,
+      category: cat,
+      date,
+      goalId,
+    };
+    setTransactions([newTx, ...transactions]);
+
+    if (goalId) {
+      setGoals((prev) =>
+        prev.map((g) =>
+          g.id === goalId ? { ...g, current: g.current + val } : g,
+        ),
+      );
+    }
+  };
+
+  const deleteTransaction = (id: number) => {
+    const txToDelete = transactions.find((t) => t.id === id);
+    if (txToDelete?.goalId) {
+      setGoals((prev) =>
+        prev.map((g) =>
+          g.id === txToDelete.goalId
+            ? { ...g, current: g.current - txToDelete.value }
+            : g,
+        ),
+      );
+    }
+    setTransactions(transactions.filter((t) => t.id !== id));
+  };
+
+  const addGoal = (name: string, target: number, color: string) => {
+    setGoals([...goals, { id: Date.now(), name, current: 0, target, color }]);
+  };
+
+  const removeGoal = (id: number) => {
+    setGoals(goals.filter((g) => g.id !== id));
+  };
 
   return (
-    <div className="min-h-screen bg-background noise-texture">
-      <aside className="fixed left-0 top-0 h-full w-16 bg-card border-r border-border flex flex-col items-center py-6 z-50">
-        <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center mb-8 animate-pulse-glow">
-          <span className="font-display font-bold text-primary-foreground text-lg">F</span>
+    <div className="min-h-screen bg-[#0a0a0a] text-white font-sans">
+      {isTxModalOpen && (
+        <TransactionModal
+          goals={goals}
+          onClose={() => setIsTxModalOpen(false)}
+          onAdd={addTransaction}
+        />
+      )}
+      {isGoalModalOpen && (
+        <GoalModal onClose={() => setIsGoalModalOpen(false)} onAdd={addGoal} />
+      )}
+
+      <aside className="fixed left-0 top-0 h-full w-20 bg-[#121212] border-r border-white/5 flex flex-col items-center py-8 z-50">
+        <div className="w-12 h-12 rounded-2xl bg-orange-600 flex items-center justify-center mb-10 font-bold text-white shadow-lg shadow-orange-600/20">
+          F
         </div>
-        
-        <nav className="flex-1 flex flex-col gap-2">
-          <NavItem icon={<LayoutDashboard size={20} />} active data-testid="nav-dashboard" />
-          <NavItem icon={<Receipt size={20} />} data-testid="nav-transactions" />
-          <NavItem icon={<Target size={20} />} data-testid="nav-goals" />
-          <NavItem icon={<CreditCard size={20} />} data-testid="nav-cards" />
-          <NavItem icon={<Settings size={20} />} data-testid="nav-settings" />
+        <nav className="flex flex-col gap-6">
+          <NavItem icon={<LayoutDashboard size={24} />} active />
+          <NavItem icon={<Receipt size={24} />} />
+          <NavItem icon={<Target size={24} />} />
         </nav>
       </aside>
 
-      <div className="ml-16">
-        <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="font-display text-2xl font-bold text-foreground" data-testid="text-page-title">
-                Controle Financeiro
-              </h1>
-              <p className="text-sm text-muted-foreground">Visão geral das suas finanças</p>
+      <div className="ml-20">
+        <header className="p-8 flex justify-between items-center bg-[#0a0a0a]/80 backdrop-blur-md sticky top-0 z-40">
+          <h1 className="text-3xl font-bold">Meu Dashboard</h1>
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500"
+                size={18}
+              />
+              <input
+                type="text"
+                placeholder="Buscar..."
+                className="w-64 h-11 pl-10 pr-4 rounded-xl bg-[#121212] border border-white/5 text-sm outline-none focus:ring-2 focus:ring-orange-600/50"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
             </div>
-
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-                <input
-                  type="text"
-                  placeholder="Buscar transações..."
-                  className="w-64 h-10 pl-10 pr-4 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
-                  data-testid="input-search"
-                />
-              </div>
-              
-              <button className="relative p-2.5 rounded-lg bg-card border border-border hover:bg-muted transition-colors" data-testid="button-notifications">
-                <Bell size={18} />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full" />
-              </button>
-
-              <button className="flex items-center gap-2 px-3 py-2 rounded-lg bg-card border border-border hover:bg-muted transition-colors" data-testid="button-period">
-                <Calendar size={16} />
-                <span className="text-sm font-medium">{selectedPeriod}</span>
-                <ChevronDown size={14} />
-              </button>
-
-              <button className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium text-sm hover:bg-primary/90 transition-colors" data-testid="button-add-transaction">
-                <Plus size={18} />
-                Nova Transação
-              </button>
-            </div>
+            <button
+              onClick={() => setIsTxModalOpen(true)}
+              className="flex items-center gap-2 px-6 h-11 bg-orange-600 text-white rounded-xl font-semibold hover:bg-orange-500 transition-all"
+            >
+              <Plus size={20} /> Nova Transação
+            </button>
           </div>
         </header>
 
-        <main className="p-6">
-          <div className="grid grid-cols-4 gap-4 mb-6">
+        <main className="p-8 space-y-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <StatCard
               title="Saldo Total"
-              value="R$ 45.231,89"
+              value={stats.balance}
+              icon={<Wallet className="text-orange-500" />}
               change="+12.5%"
-              trend="up"
-              icon={<Wallet className="text-primary" size={22} />}
-              data-testid="card-balance"
             />
             <StatCard
-              title="Receitas (Mês)"
-              value="R$ 12.000,00"
+              title="Receitas"
+              value={stats.income}
+              icon={<TrendingUp className="text-emerald-500" />}
               change="+8.2%"
-              trend="up"
-              icon={<TrendingUp className="text-green-500" size={22} />}
-              data-testid="card-income"
             />
             <StatCard
-              title="Despesas (Mês)"
-              value="R$ 8.800,00"
-              change="+5.1%"
-              trend="down"
-              icon={<TrendingDown className="text-red-500" size={22} />}
-              data-testid="card-expenses"
+              title="Despesas"
+              value={stats.expenses}
+              icon={<TrendingDown className="text-red-500" />}
+              change="-5.1%"
             />
             <StatCard
-              title="Economizado"
-              value="R$ 3.200,00"
-              change="+15.3%"
-              trend="up"
-              icon={<PiggyBank className="text-primary" size={22} />}
-              data-testid="card-savings"
+              title="Economia"
+              value={stats.balance}
+              icon={<PiggyBank className="text-orange-500" />}
+              change="+15%"
             />
           </div>
 
-          <div className="grid grid-cols-12 gap-4 mb-6">
-            <div className="col-span-8 bg-card rounded-xl border border-border p-5 card-glow animate-slide-up" style={{ animationDelay: "0.1s" }}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-display font-semibold text-lg" data-testid="text-chart-title">Fluxo Financeiro</h3>
-                  <p className="text-sm text-muted-foreground">Receitas vs Despesas mensais</p>
-                </div>
-                <div className="flex gap-4">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-primary" />
-                    <span className="text-xs text-muted-foreground">Receitas</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Despesas</span>
-                  </div>
-                </div>
-              </div>
-              <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={monthlyData}>
-                  <defs>
-                    <linearGradient id="colorReceitas" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#FF6600" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#FF6600" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorDespesas" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#666666" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="#666666" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="name" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#666" fontSize={12} tickLine={false} axisLine={false} tickFormatter={(v) => `${v / 1000}k`} />
+          <div className="grid grid-cols-12 gap-8">
+            <div className="col-span-12 lg:col-span-5 bg-[#121212] rounded-2xl border border-white/5 p-6">
+              <h3 className="text-lg font-bold mb-6">Fluxo Financeiro</h3>
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={monthlyFlowData}>
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(255,255,255,0.05)"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="name"
+                    stroke="#666"
+                    fontSize={12}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(0 0% 8%)",
-                      border: "1px solid hsl(0 0% 18%)",
-                      borderRadius: "8px",
-                      fontSize: "12px",
+                      backgroundColor: "#121212",
+                      border: "1px solid #333",
+                      color: "#fff",
                     }}
-                    formatter={(value: number) => [`R$ ${value.toLocaleString("pt-BR")}`, ""]}
                   />
-                  <Area type="monotone" dataKey="receitas" stroke="#FF6600" strokeWidth={2} fill="url(#colorReceitas)" />
-                  <Area type="monotone" dataKey="despesas" stroke="#666666" strokeWidth={2} fill="url(#colorDespesas)" />
+                  <Area
+                    type="monotone"
+                    dataKey="receitas"
+                    stroke="#ea580c"
+                    fill="#ea580c"
+                    fillOpacity={0.1}
+                    strokeWidth={3}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="col-span-4 bg-card rounded-xl border border-border p-5 card-glow animate-slide-up" style={{ animationDelay: "0.2s" }}>
-              <h3 className="font-display font-semibold text-lg mb-1" data-testid="text-category-title">Despesas por Categoria</h3>
-              <p className="text-sm text-muted-foreground mb-4">Distribuição mensal</p>
-              <div className="flex justify-center">
-                <ResponsiveContainer width={200} height={200}>
-                  <PieChart>
-                    <Pie
-                      data={categoryData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={85}
-                      paddingAngle={3}
-                      dataKey="value"
-                    >
-                      {categoryData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(0 0% 8%)",
-                        border: "1px solid hsl(0 0% 18%)",
-                        borderRadius: "8px",
-                        fontSize: "12px",
-                      }}
-                      formatter={(value: number) => [`R$ ${value.toLocaleString("pt-BR")}`, ""]}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-4 space-y-2">
-                {categoryData.slice(0, 4).map((cat) => (
-                  <div key={cat.name} className="flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }} />
-                      <span className="text-muted-foreground">{cat.name}</span>
-                    </div>
-                    <span className="font-medium">R$ {cat.value.toLocaleString("pt-BR")}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-12 gap-4 mb-6">
-            <div className="col-span-5 bg-card rounded-xl border border-border p-5 card-glow animate-slide-up" style={{ animationDelay: "0.3s" }}>
-              <h3 className="font-display font-semibold text-lg mb-1" data-testid="text-weekly-title">Gastos da Semana</h3>
-              <p className="text-sm text-muted-foreground mb-4">Últimos 7 dias</p>
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={weeklyExpenses}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                  <XAxis dataKey="day" stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#666" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "hsl(0 0% 8%)",
-                      border: "1px solid hsl(0 0% 18%)",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                    }}
-                    formatter={(value: number) => [`R$ ${value}`, "Gasto"]}
-                  />
-                  <Bar dataKey="valor" fill="#FF6600" radius={[4, 4, 0, 0]} />
-                </BarChart>
+            <div className="col-span-12 lg:col-span-3 bg-[#121212] rounded-2xl border border-white/5 p-6 text-center">
+              <h3 className="text-lg font-bold mb-4">Categorias</h3>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={
+                      categoryData.length
+                        ? categoryData
+                        : [{ name: "Vazio", value: 1 }]
+                    }
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {categoryData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
               </ResponsiveContainer>
             </div>
 
-            <div className="col-span-7 bg-card rounded-xl border border-border p-5 card-glow animate-slide-up" style={{ animationDelay: "0.4s" }}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-display font-semibold text-lg" data-testid="text-transactions-title">Transações Recentes</h3>
-                  <p className="text-sm text-muted-foreground">Últimas movimentações</p>
-                </div>
-                <button className="text-sm text-primary hover:underline" data-testid="button-view-all">Ver todas</button>
-              </div>
-              <div className="space-y-3">
-                {recentTransactions.map((tx) => (
-                  <div key={tx.id} className="flex items-center justify-between py-2.5 border-b border-border last:border-0" data-testid={`row-transaction-${tx.id}`}>
+            <div className="col-span-12 lg:col-span-4 bg-[#121212] rounded-2xl border border-white/5 p-6 h-[340px] flex flex-col">
+              <h3 className="text-lg font-bold mb-4">Transações</h3>
+              <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
+                {filteredTransactions.map((tx) => (
+                  <div
+                    key={tx.id}
+                    className="flex items-center justify-between group"
+                  >
                     <div className="flex items-center gap-3">
-                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${tx.value > 0 ? "bg-green-500/10" : "bg-red-500/10"}`}>
+                      <div
+                        className={`p-2 rounded-lg ${tx.value > 0 ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"}`}
+                      >
                         {tx.value > 0 ? (
-                          <ArrowUpRight className="text-green-500" size={18} />
+                          <ArrowUpRight size={16} />
                         ) : (
-                          <ArrowDownRight className="text-red-500" size={18} />
+                          <ArrowDownRight size={16} />
                         )}
                       </div>
                       <div>
-                        <p className="font-medium text-sm">{tx.desc}</p>
-                        <p className="text-xs text-muted-foreground">{tx.category}</p>
+                        <p className="text-xs font-bold leading-none flex items-center gap-2">
+                          {tx.desc}
+                          {tx.goalId && (
+                            <span className="text-[9px] bg-orange-600/20 text-orange-500 px-1.5 py-0.5 rounded uppercase">
+                              Meta
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-[10px] text-zinc-500 mt-1">
+                          {new Date(tx.date).toLocaleDateString("pt-BR")}
+                        </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className={`font-semibold text-sm ${tx.value > 0 ? "text-green-500" : "text-foreground"}`}>
-                        {tx.value > 0 ? "+" : ""}R$ {Math.abs(tx.value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{tx.date}</p>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`text-xs font-black ${tx.value > 0 ? "text-emerald-500" : ""}`}
+                      >
+                        {tx.value.toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })}
+                      </span>
+                      <button
+                        onClick={() => deleteTransaction(tx.id)}
+                        className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -329,42 +374,60 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="bg-card rounded-xl border border-border p-5 card-glow animate-slide-up" style={{ animationDelay: "0.5s" }}>
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="font-display font-semibold text-lg" data-testid="text-goals-title">Metas de Economia</h3>
-                <p className="text-sm text-muted-foreground">Acompanhe seu progresso</p>
-              </div>
-              <button className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-muted transition-colors" data-testid="button-add-goal">
-                <Plus size={16} />
-                Nova Meta
+          <div className="bg-[#121212] rounded-2xl border border-white/5 p-8">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-xl font-bold">Minhas Metas</h3>
+              <button
+                onClick={() => setIsGoalModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-xl text-xs font-bold transition-all"
+              >
+                <Plus size={16} /> Nova Meta
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              {savingsGoals.map((goal) => {
-                const percentage = (goal.current / goal.target) * 100;
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {goals.map((goal) => {
+                const percentage = Math.min(
+                  (goal.current / goal.target) * 100,
+                  100,
+                );
                 return (
-                  <div key={goal.name} className="bg-background rounded-lg p-4 border border-border" data-testid={`card-goal-${goal.name.toLowerCase()}`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="font-medium">{goal.name}</span>
-                      <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary font-medium">
+                  <div
+                    key={goal.id}
+                    className="relative bg-[#0a0a0a] rounded-2xl p-6 border border-white/5 group hover:border-orange-600/30 transition-all"
+                  >
+                    <button
+                      onClick={() => removeGoal(goal.id)}
+                      className="absolute top-4 right-4 p-2 opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                    <div className="flex justify-between items-center mb-4 pr-6">
+                      <span className="font-bold text-sm">{goal.name}</span>
+                      <span className="text-xs font-black text-orange-500">
                         {percentage.toFixed(0)}%
                       </span>
                     </div>
-                    <div className="mb-2">
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${percentage}%`, backgroundColor: goal.color }}
-                        />
-                      </div>
+                    <div className="h-2.5 bg-zinc-800 rounded-full overflow-hidden mb-4">
+                      <div
+                        className="h-full transition-all duration-700 ease-out"
+                        style={{
+                          width: `${percentage}%`,
+                          backgroundColor: goal.color,
+                        }}
+                      />
                     </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        R$ {goal.current.toLocaleString("pt-BR")}
+                    <div className="flex justify-between text-[11px] text-zinc-500 font-bold">
+                      <span>
+                        {goal.current.toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })}
                       </span>
-                      <span className="font-medium">
-                        R$ {goal.target.toLocaleString("pt-BR")}
+                      <span>
+                        {goal.target.toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })}
                       </span>
                     </div>
                   </div>
@@ -378,49 +441,199 @@ export default function Dashboard() {
   );
 }
 
-function NavItem({ icon, active, ...props }: { icon: React.ReactNode; active?: boolean } & React.HTMLAttributes<HTMLButtonElement>) {
+// --- Componentes de Apoio ---
+
+function TransactionModal({
+  onClose,
+  onAdd,
+  goals,
+}: {
+  onClose: () => void;
+  onAdd: any;
+  goals: Goal[];
+}) {
+  const [desc, setDesc] = useState("");
+  const [val, setVal] = useState("");
+  const [cat, setCat] = useState("Alimentação");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [goalId, setGoalId] = useState("");
+
   return (
-    <button
-      className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all ${
-        active
-          ? "bg-primary text-primary-foreground"
-          : "text-muted-foreground hover:text-foreground hover:bg-muted"
-      }`}
-      {...props}
-    >
-      {icon}
-    </button>
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+      <div className="bg-[#121212] border border-white/10 w-full max-w-md rounded-3xl p-8 shadow-2xl text-white">
+        <h2 className="text-2xl font-bold mb-6">Nova Movimentação</h2>
+        <div className="space-y-4">
+          <input
+            className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-orange-600/50"
+            placeholder="Ex: Investimento ou Aluguel"
+            value={desc}
+            onChange={(e) => setDesc(e.target.value)}
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <input
+              type="number"
+              className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 outline-none"
+              placeholder="Valor (Ex: -50)"
+              value={val}
+              onChange={(e) => setVal(e.target.value)}
+            />
+            <input
+              type="date"
+              className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 outline-none text-sm"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <select
+              className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 outline-none text-sm"
+              value={cat}
+              onChange={(e) => setCat(e.target.value)}
+            >
+              <option>Receita</option>
+              <option>Alimentação</option>
+              <option>Transporte</option>
+              <option>Moradia</option>
+              <option>Lazer</option>
+              <option>Metas</option>
+            </select>
+            <select
+              className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 outline-none text-sm"
+              value={goalId}
+              onChange={(e) => setGoalId(e.target.value)}
+            >
+              <option value="">Nenhuma Meta</option>
+              {goals.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[10px] text-zinc-500 italic">
+            * Valores positivos somam à meta, negativos subtraem.
+          </p>
+          <div className="flex gap-4 pt-4">
+            <button
+              onClick={onClose}
+              className="flex-1 py-3 font-bold text-sm hover:bg-white/5 rounded-xl transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                if (desc && val) {
+                  onAdd(
+                    desc,
+                    parseFloat(val),
+                    cat,
+                    date,
+                    goalId ? parseInt(goalId) : undefined,
+                  );
+                  onClose();
+                }
+              }}
+              className="flex-1 py-3 bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-600/20"
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
-function StatCard({
-  title,
-  value,
-  change,
-  trend,
-  icon,
-  ...props
-}: {
-  title: string;
-  value: string;
-  change: string;
-  trend: "up" | "down";
-  icon: React.ReactNode;
-} & React.HTMLAttributes<HTMLDivElement>) {
+function GoalModal({ onClose, onAdd }: { onClose: () => void; onAdd: any }) {
+  const [name, setName] = useState("");
+  const [target, setTarget] = useState("");
+  const [color, setColor] = useState("#ea580c");
+
   return (
-    <div className="bg-card rounded-xl border border-border p-5 card-glow animate-slide-up" {...props}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="p-2.5 rounded-lg bg-muted/50">{icon}</div>
+    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm z-[100] flex items-center justify-center p-4 text-white">
+      <div className="bg-[#121212] border border-white/10 w-full max-w-sm rounded-3xl p-8 shadow-2xl">
+        <h2 className="text-2xl font-bold mb-6">Nova Meta</h2>
+        <div className="space-y-4">
+          <input
+            className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 outline-none"
+            placeholder="Ex: Aposentadoria"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            type="number"
+            className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 outline-none"
+            placeholder="Valor Alvo"
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+          />
+          <div className="flex items-center gap-4 p-1">
+            <span className="text-sm text-zinc-400">Cor:</span>
+            <input
+              type="color"
+              className="flex-1 h-10 bg-transparent border-none cursor-pointer"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-4 pt-4">
+            <button
+              onClick={onClose}
+              className="flex-1 py-3 font-bold text-sm hover:bg-white/5 rounded-xl"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                if (name && target) {
+                  onAdd(name, parseFloat(target), color);
+                  onClose();
+                }
+              }}
+              className="flex-1 py-3 bg-orange-600 text-white font-bold rounded-xl"
+            >
+              Salvar Meta
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ title, value, icon, change }: any) {
+  return (
+    <div className="bg-[#121212] rounded-2xl border border-white/5 p-6 hover:border-orange-600/40 transition-all">
+      <div className="flex justify-between items-start mb-4">
+        <div className="p-3 bg-white/5 rounded-xl">{icon}</div>
         <span
-          className={`text-xs font-medium px-2 py-1 rounded-full ${
-            trend === "up" ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
-          }`}
+          className={`text-[10px] font-bold px-2 py-1 rounded-full ${change.startsWith("+") ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"}`}
         >
           {change}
         </span>
       </div>
-      <p className="text-sm text-muted-foreground mb-1">{title}</p>
-      <p className="font-display text-2xl font-bold">{value}</p>
+      <p className="text-xs text-zinc-500 uppercase font-black tracking-widest">
+        {title}
+      </p>
+      <p className="text-2xl font-bold mt-2">
+        {value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+      </p>
     </div>
+  );
+}
+
+function NavItem({
+  icon,
+  active,
+}: {
+  icon: React.ReactNode;
+  active?: boolean;
+}) {
+  return (
+    <button
+      className={`w-12 h-12 rounded-xl flex items-center justify-center transition-all ${active ? "bg-orange-600 text-white shadow-lg shadow-orange-600/20" : "text-zinc-500 hover:bg-white/5"}`}
+    >
+      {icon}
+    </button>
   );
 }
