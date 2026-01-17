@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
-import { Link, useLocation } from "wouter"; // [!code ++] Importação do wouter
+import { Link, useLocation } from "wouter";
+import { supabase } from "@/lib/supabase"; // Conexão com Supabase
+import { useToast } from "@/hooks/use-toast"; // Feedback visual
 import {
   TrendingUp,
   TrendingDown,
@@ -19,6 +21,7 @@ import {
   Pencil,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -33,14 +36,14 @@ import {
   YAxis,
 } from "recharts";
 
-// --- Interfaces ---
+// --- Interfaces (Alinhadas com o Banco de Dados) ---
 interface Transaction {
   id: number;
-  desc: string;
+  description: string;
   category: string;
   value: number;
   date: string;
-  goalId?: number;
+  goal_id?: number | null;
 }
 
 interface Goal {
@@ -51,82 +54,60 @@ interface Goal {
   color: string;
 }
 
-// --- Hooks para LocalStorage ---
-function useStickyState<T>(
-  defaultValue: T,
-  key: string,
-): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const [value, setValue] = useState<T>(() => {
-    try {
-      const stickyValue = window.localStorage.getItem(key);
-      return stickyValue !== null ? JSON.parse(stickyValue) : defaultValue;
-    } catch (err) {
-      return defaultValue;
-    }
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  }, [key, value]);
-
-  return [value, setValue];
-}
-
 export default function Dashboard() {
-  // [!code ++] Hook de localização para saber a rota atual
   const [location] = useLocation();
+  const { toast } = useToast();
 
-  // Estado UI
+  // Estados de Dados
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Estados de UI
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Mobile
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
-
-  // Estado de Data (Filtro Mensal)
   const [currentDate, setCurrentDate] = useState(new Date());
 
-  // Dados Persistentes
-  const [transactions, setTransactions] = useStickyState<Transaction[]>(
-    [
-      {
-        id: 1,
-        desc: "Salário Mensal",
-        category: "Receita",
-        value: 8500.0,
-        date: "2026-01-05",
-      },
-      {
-        id: 2,
-        desc: "Supermercado",
-        category: "Alimentação",
-        value: -450.0,
-        date: "2026-01-10",
-      },
-      {
-        id: 3,
-        desc: "Aluguel",
-        category: "Moradia",
-        value: -2200.0,
-        date: "2026-01-02",
-      },
-    ],
-    "finance-transactions",
-  );
+  // --- Carregar Dados do Supabase ---
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
 
-  const [goals, setGoals] = useStickyState<Goal[]>(
-    [
-      { id: 1, name: "Viagem", current: 4500, target: 10000, color: "#FF6600" },
-      {
-        id: 2,
-        name: "Reserva",
-        current: 15500,
-        target: 30000,
-        color: "#FF8533",
-      },
-    ],
-    "finance-goals",
-  );
+      // 1. Buscar Transações
+      const { data: txData, error: txError } = await supabase
+        .from("transactions")
+        .select("*")
+        .order("date", { ascending: false });
+
+      if (txError) throw txError;
+
+      // 2. Buscar Metas
+      const { data: goalsData, error: goalsError } = await supabase
+        .from("goals")
+        .select("*")
+        .order("created_at", { ascending: true });
+
+      if (goalsError) throw goalsError;
+
+      setTransactions(txData || []);
+      setGoals(goalsData || []);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao carregar dados",
+        description: error.message,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   // --- Lógica de Data ---
   const handleMonthChange = (direction: "prev" | "next") => {
@@ -140,11 +121,10 @@ export default function Dashboard() {
   };
 
   // --- Cálculos Dinâmicos ---
-
-  // 1. Filtra transações pelo Mês/Ano selecionado
   const currentMonthTransactions = useMemo(() => {
     return transactions.filter((t) => {
       const tDate = new Date(t.date);
+      // Ajuste simples para fuso horário UTC (data vinda do banco é YYYY-MM-DD)
       const tMonth = tDate.getUTCMonth();
       const tYear = tDate.getUTCFullYear();
       return (
@@ -153,14 +133,14 @@ export default function Dashboard() {
     });
   }, [transactions, currentDate]);
 
-  // 2. Transações filtradas por Busca
   const filteredTransactions = useMemo(() => {
     return currentMonthTransactions
-      .filter((t) => t.desc.toLowerCase().includes(searchTerm.toLowerCase()))
+      .filter((t) =>
+        t.description.toLowerCase().includes(searchTerm.toLowerCase()),
+      )
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [currentMonthTransactions, searchTerm]);
 
-  // 3. Estatísticas
   const stats = useMemo(() => {
     const totalBalance = transactions.reduce((acc, t) => acc + t.value, 0);
     const monthlyIncome = currentMonthTransactions
@@ -174,7 +154,6 @@ export default function Dashboard() {
     return { totalBalance, monthlyIncome, monthlyExpenses, monthlyBalance };
   }, [transactions, currentMonthTransactions]);
 
-  // 4. Dados para o Gráfico de Área
   const yearlyFlowData = useMemo(() => {
     const months = [
       "Jan",
@@ -205,11 +184,9 @@ export default function Dashboard() {
         else yearData[idx].despesas += Math.abs(tx.value);
       }
     });
-
     return yearData;
   }, [transactions, currentDate]);
 
-  // 5. Dados Categorias
   const categoryData = useMemo(() => {
     const cats: Record<string, number> = {};
     currentMonthTransactions
@@ -232,59 +209,141 @@ export default function Dashboard() {
     }));
   }, [currentMonthTransactions]);
 
-  // --- Ações ---
+  // --- Ações (CRUD com Supabase) ---
 
-  const handleSaveTransaction = (tx: Omit<Transaction, "id">, id?: number) => {
-    if (id) {
-      const oldTx = transactions.find((t) => t.id === id);
-      const diff = tx.value - (oldTx?.value || 0);
+  const handleSaveTransaction = async (tx: any, id?: number) => {
+    try {
+      // Obter usuário logado para garantir o user_id
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não autenticado");
 
-      setTransactions((prev) =>
-        prev.map((t) => (t.id === id ? { ...tx, id } : t)),
-      );
+      const transactionPayload = {
+        description: tx.description,
+        value: tx.value,
+        category: tx.category,
+        date: tx.date,
+        goal_id: tx.goal_id || null,
+        user_id: user.id,
+      };
 
-      if (tx.goalId) {
-        setGoals((prev) =>
-          prev.map((g) =>
-            g.id === tx.goalId ? { ...g, current: g.current + diff } : g,
-          ),
-        );
+      if (id) {
+        // Atualizar
+        const { error } = await supabase
+          .from("transactions")
+          .update(transactionPayload)
+          .eq("id", id);
+
+        if (error) throw error;
+        toast({ title: "Transação atualizada!" });
+      } else {
+        // Criar
+        const { error } = await supabase
+          .from("transactions")
+          .insert([transactionPayload]);
+
+        if (error) throw error;
+
+        // Se tiver meta vinculada, atualizar o valor da meta (Opcional: Lógica simplificada)
+        if (tx.goal_id) {
+          const goal = goals.find((g) => g.id === tx.goal_id);
+          if (goal) {
+            await supabase
+              .from("goals")
+              .update({ current: goal.current + tx.value })
+              .eq("id", goal.id);
+          }
+        }
+
+        toast({ title: "Transação criada!" });
       }
-    } else {
-      const newTx = { ...tx, id: Date.now() };
-      setTransactions([newTx, ...transactions]);
-      if (tx.goalId) {
-        setGoals((prev) =>
-          prev.map((g) =>
-            g.id === tx.goalId ? { ...g, current: g.current + tx.value } : g,
-          ),
-        );
-      }
+
+      await fetchData(); // Recarregar dados
+      setEditingTx(null);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao salvar",
+        description: error.message,
+      });
     }
-    setEditingTx(null);
   };
 
-  const deleteTransaction = (id: number) => {
-    const txToDelete = transactions.find((t) => t.id === id);
-    if (txToDelete?.goalId) {
-      setGoals((prev) =>
-        prev.map((g) =>
-          g.id === txToDelete.goalId
-            ? { ...g, current: g.current - txToDelete.value }
-            : g,
-        ),
-      );
+  const deleteTransaction = async (id: number) => {
+    try {
+      const { error } = await supabase
+        .from("transactions")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+
+      toast({ title: "Transação removida" });
+
+      setTransactions((prev) => prev.filter((t) => t.id !== id));
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao excluir",
+        description: error.message,
+      });
     }
-    setTransactions(transactions.filter((t) => t.id !== id));
   };
 
-  const addGoal = (name: string, target: number, color: string) => {
-    setGoals([...goals, { id: Date.now(), name, current: 0, target, color }]);
+  const addGoal = async (name: string, target: number, color: string) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Usuário não logado");
+
+      const { error } = await supabase.from("goals").insert([
+        {
+          name,
+          target,
+          color,
+          current: 0,
+          user_id: user.id,
+        },
+      ]);
+
+      if (error) throw error;
+
+      toast({ title: "Meta criada com sucesso!" });
+      await fetchData();
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao criar meta",
+        description: error.message,
+      });
+    }
   };
 
-  const removeGoal = (id: number) => {
-    setGoals(goals.filter((g) => g.id !== id));
+  const removeGoal = async (id: number) => {
+    try {
+      const { error } = await supabase.from("goals").delete().eq("id", id);
+      if (error) throw error;
+
+      setGoals((prev) => prev.filter((g) => g.id !== id));
+      toast({ title: "Meta removida" });
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao remover meta",
+        description: error.message,
+      });
+    }
   };
+
+  // Loading Screen Inicial
+  if (isLoading && transactions.length === 0 && goals.length === 0) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center text-white">
+        <Loader2 className="animate-spin text-orange-600" size={48} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white font-sans flex relative overflow-hidden">
@@ -312,7 +371,7 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Sidebar - Atualizada com Links */}
+      {/* Sidebar */}
       <aside
         className={`
         fixed lg:static top-0 left-0 h-full w-64 lg:w-20 bg-[#121212] border-r border-white/5
@@ -324,7 +383,6 @@ export default function Dashboard() {
           F
         </div>
 
-        {/* Navegação com wouter */}
         <nav className="flex flex-col gap-6 w-full px-4 items-center">
           <Link href="/">
             <div className="w-full lg:w-auto cursor-pointer">
@@ -362,7 +420,6 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Header */}
         <header className="px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4 bg-[#0a0a0a]/80 backdrop-blur-md border-b border-white/5 z-40">
-          {/* Mobile Menu Button & Title */}
           <div className="flex items-center w-full md:w-auto gap-4">
             <button
               className="lg:hidden p-2 hover:bg-white/5 rounded-lg"
@@ -372,7 +429,6 @@ export default function Dashboard() {
             </button>
             <h1 className="text-2xl font-bold hidden md:block">Dashboard</h1>
 
-            {/* Seletor de Data */}
             <div className="flex items-center bg-[#121212] rounded-xl border border-white/5 p-1 ml-2">
               <button
                 onClick={() => handleMonthChange("prev")}
@@ -395,7 +451,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Search & Action */}
           <div className="flex items-center gap-4 w-full md:w-auto">
             <div className="relative flex-1 md:flex-none">
               <Search
@@ -663,8 +718,8 @@ export default function Dashboard() {
                         </div>
                         <div>
                           <p className="font-semibold text-sm leading-none flex items-center gap-2">
-                            {tx.desc}
-                            {tx.goalId && (
+                            {tx.description}
+                            {tx.goal_id && (
                               <span className="text-[9px] bg-orange-600/20 text-orange-500 px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">
                                 Meta
                               </span>
@@ -788,7 +843,7 @@ export default function Dashboard() {
   );
 }
 
-// --- Componentes de Apoio ---
+// --- Componentes de Apoio (Modais) ---
 
 function TransactionModal({
   onClose,
@@ -801,13 +856,34 @@ function TransactionModal({
   goals: Goal[];
   initialData: Transaction | null;
 }) {
-  const [desc, setDesc] = useState(initialData?.desc || "");
+  const [description, setDescription] = useState(
+    initialData?.description || "",
+  );
   const [val, setVal] = useState(initialData?.value.toString() || "");
   const [cat, setCat] = useState(initialData?.category || "Alimentação");
   const [date, setDate] = useState(
     initialData?.date || new Date().toISOString().split("T")[0],
   );
-  const [goalId, setGoalId] = useState(initialData?.goalId?.toString() || "");
+  const [goalId, setGoalId] = useState(initialData?.goal_id?.toString() || "");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (description && val) {
+      setIsSaving(true);
+      await onSave(
+        {
+          description,
+          value: parseFloat(val),
+          category: cat,
+          date,
+          goal_id: goalId ? parseInt(goalId) : undefined,
+        },
+        initialData?.id,
+      );
+      setIsSaving(false);
+      onClose();
+    }
+  };
 
   const handleContentClick = (e: React.MouseEvent) => e.stopPropagation();
 
@@ -837,8 +913,8 @@ function TransactionModal({
             <input
               className="w-full bg-[#0a0a0a] border border-white/10 rounded-xl p-3.5 outline-none focus:ring-2 focus:ring-orange-600/50 transition-all text-sm"
               placeholder="Ex: Salário, Mercado..."
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               autoFocus
             />
           </div>
@@ -911,25 +987,18 @@ function TransactionModal({
 
           <div className="pt-6">
             <button
-              onClick={() => {
-                if (desc && val) {
-                  onSave(
-                    {
-                      desc,
-                      value: parseFloat(val),
-                      category: cat,
-                      date,
-                      goalId: goalId ? parseInt(goalId) : undefined,
-                    },
-                    initialData?.id,
-                  );
-                  onClose();
-                }
-              }}
-              className="w-full py-4 bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-600/20 hover:bg-orange-500 transition-all flex justify-center items-center gap-2"
+              disabled={isSaving}
+              onClick={handleSave}
+              className="w-full py-4 bg-orange-600 text-white font-bold rounded-xl shadow-lg shadow-orange-600/20 hover:bg-orange-500 transition-all flex justify-center items-center gap-2 disabled:opacity-50"
             >
-              <Pencil size={18} />{" "}
-              {initialData ? "Atualizar Transação" : "Confirmar Transação"}
+              {isSaving ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <>
+                  <Pencil size={18} />{" "}
+                  {initialData ? "Atualizar Transação" : "Confirmar Transação"}
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -942,6 +1011,16 @@ function GoalModal({ onClose, onAdd }: { onClose: () => void; onAdd: any }) {
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [color, setColor] = useState("#ea580c");
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (name && target) {
+      setIsSaving(true);
+      await onAdd(name, parseFloat(target), color);
+      setIsSaving(false);
+      onClose();
+    }
+  };
 
   return (
     <div
@@ -983,15 +1062,11 @@ function GoalModal({ onClose, onAdd }: { onClose: () => void; onAdd: any }) {
             />
           </div>
           <button
-            onClick={() => {
-              if (name && target) {
-                onAdd(name, parseFloat(target), color);
-                onClose();
-              }
-            }}
-            className="w-full py-4 mt-2 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-500 transition-all shadow-lg shadow-orange-600/20"
+            disabled={isSaving}
+            onClick={handleSave}
+            className="w-full py-4 mt-2 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-500 transition-all shadow-lg shadow-orange-600/20 flex items-center justify-center"
           >
-            Criar Meta
+            {isSaving ? <Loader2 className="animate-spin" /> : "Criar Meta"}
           </button>
         </div>
       </div>
